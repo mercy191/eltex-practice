@@ -135,9 +135,11 @@ root@eltex-practice2-pg2-v9:~# ls -lh /root/etc_backup.tar.*
 -rw-r--r-- 1 root root 581K Mar 13 16:36 /root/etc_backup.tar.gz
 root@eltex-practice2-pg2-v9:~# echo "Текущая дата: $(date)" >> /etc/motd
 root@eltex-practice2-pg2-v9:~# rsync -a /etc/ /root/etc_backup
-root@eltex-practice2-pg2-v9:~# tar -caf /root/etc_backup_motd.tar.gz -C /root/etc_backup motd
-root@eltex-practice2-pg2-v9:~# tar -tf /root/etc_backup_motd.tar.gz
-motd
+root@eltex-practice2-pg2-v9:~# mkdir etc_motd
+root@eltex-practice2-pg2-v9:~# tar -xf etc_backup.tar.gz -C /root/etc_motd
+root@eltex-practice2-pg2-v9:~# cp /etc/motd ~/etc_motd/etc_backup/
+root@eltex-practice2-pg2-v9:~# em etc_backup.tar.gz
+root@eltex-practice2-pg2-v9:~# tar -caf /rrot/etc_backup.tar.gz -C /root/etc_motd/ etc_backup
 root@eltex-practice2-pg2-v9:~# diff <(tar -tf /root/etc_backup.tar.bz2 | sort) <(find /root/etc_backup -type f | sed 's|/root/||' | sort)
 root@eltex-practice2-pg2-v9:~# mkdir /root/etc_backup_gzip
 root@eltex-practice2-pg2-v9:~# tar -xaf /root/etc_backup.tar.gz -C /roott/etc_backup_gzip
