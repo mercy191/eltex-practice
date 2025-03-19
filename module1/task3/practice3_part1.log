@@ -1,0 +1,39 @@
+root@eltex-practice2-pg2-v9:~# su user1
+user1@eltex-practice2-pg2-v9:~$ ps -eL | awk '{print $1}' | sort | uniq -c | awk '{if($1 > 1) print $1}' | wc -l
+10
+user1@eltex-practice2-pg2-v9:~$ passwd
+Changing password for user1.
+Current password:
+
+user1@eltex-practice2-pg2-v9:~$ vim ~/file_task3.txt
+
+[1]+ Stopped		vim ~/file_task3.txt
+user1@eltex-practice2-pg2-v9:~$ sleep 600
+^Z
+[2]+ Stopped 		sleep 600
+user1@eltex-practice2-pg2-v9:~$ jobs
+[1]+ Stopped            vim ~/file_task3.txt
+[2]+ Stopped            sleep 600
+user1@eltex-practice2-pg2-v9:~$ bg %2
+[2]+ sleep 600 &
+user1@eltex-practice2-pg2-v9:~$ ps aux | grep sleep
+user1      32720  0.0  0.0   5748  2048 pts/0    S    12:44   0:00 sleep 600
+user1      32727  0.0  0.0   6716  2304 pts/0    S+   12:45   0:00 grep --color=auto sleep
+user1@eltex-practice2-pg2-v9:~$ renice 10 -p 32720
+32720 (process ID) old priority 0, new priority 10
+user1@eltex-practice2-pg2-v9:~$ ps -l
+F S   UID     PID    PPID  C PRI  NI ADDR SZ WCHAN  TTY          TIME CMD
+4 S  1001   32350   32349  0  80   0 -  2176 do_wai pts/0    00:00:00 bash
+0 T  1001   32536   32350  0  80   0 -  6193 do_sig pts/0    00:00:00 vim
+0 S  1001   32720   32350  0  90  10 -  1437 do_sys pts/0    00:00:00 sleep
+0 R  1001   32729   32350  0  80   0 -  2747 -      pts/0    00:00:00 ps
+user1@eltex-practice2-pg2-v9:~$ fg %1
+vim ~/file_task3.txt
+user1@eltex-practice2-pg2-v9:~$ kill -15 %2
+user1@eltex-practice2-pg2-v9:~$ jobs
+[2]+  Terminated              sleep 600
+user1@eltex-practice2-pg2-v9:~$ trap 'echo "Меня голыми руками не возьмешь!"' SIGINT SIGQUIT
+user1@eltex-practice2-pg2-v9:~$ kill -SIGINT $$
+Меня голыми руками не возьмешь!
+user1@eltex-practice2-pg2-v9:~$ kill -SIGQUIT $$
+Меня голыми руками не возьмешь!
