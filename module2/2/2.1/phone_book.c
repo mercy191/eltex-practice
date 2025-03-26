@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include "contact.h"
+#include "contact_book.h"
 
 #define ADD                 100
 #define EDIT                200
