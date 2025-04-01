@@ -73,7 +73,7 @@ ListNode *insertListNode(ContactList *list, Contact *contact)
     new_node->contact = contact;
 
     ListNode* current = list->head;
-    while (current != NULL && current->contact->id < new_node->contact->id) {
+    while (current != NULL && (strcmp(current->contact->name, new_node->contact->name) < 0)) {
         current = current->next;
     }
 
