@@ -1,12 +1,6 @@
-  Parent process: Number: 184964405
-  Parent process: Number: 87462987
-  Parent process: Number: 298533145
-  Parent process: Number: 1783601782
-  Parent process: Number: 46141323
-  Parent process: Number: 1800055060
-  Parent process: Number: 1656152784
-  Parent process: Number: 1863728425
-  Parent process: Number: 357010587
-  Parent process: Number: 2105769915
-  Parent process: Number: 945798485
-  Parent process: Number: 603605474
+
+  Parent process: Number: 1636501265
+  Parent process: Number: 559320614
+  Parent process: Number: 1461379659
+  Parent process: Number: 1418940795
+  Parent process: Number: 1277622323
