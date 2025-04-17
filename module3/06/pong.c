@@ -7,7 +7,8 @@
 #include <sys/msg.h>
 #include <unistd.h>
 
-#define MSG_KEY             5454
+#define KEY_PATH            "./ping" 
+#define KEY_ID              31
 
 #define PINGPONG_PRIORITY   10
 #define STOP_PRIORITY       30
@@ -32,7 +33,14 @@ void write_stdout(const char *str) {
 int main() 
 {
     int msgid;
-    if ((msgid = msgget(MSG_KEY, PERMISSIONS)) == -1) {
+    key_t key;
+
+    if ((key = ftok(KEY_PATH, KEY_ID)) == -1) {
+        perror("ftok");
+        exit(EXIT_FAILURE);
+    }
+
+    if ((msgid = msgget(key, PERMISSIONS)) == -1) {
         perror("msgget");
         exit(EXIT_FAILURE);
     }
