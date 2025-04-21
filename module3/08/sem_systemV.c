@@ -22,6 +22,9 @@ int     semid = -1;
 /* Write in STDOUT */
 void write_stdout(const char *str);
 
+/* Clean resources */
+void cleanup();
+
 /* Create semaphore */
 int create_semaphore();
 
@@ -70,7 +73,7 @@ int main(int argc, char *argv[])
     pid_t pid = fork();
     if (pid < 0) {
         perror("fork");
-        semctl(semid, 0, IPC_RMID);
+        cleanup();
         exit(EXIT_FAILURE);
     }
     /* Child process */
@@ -88,26 +91,20 @@ int main(int argc, char *argv[])
         close(pipefd[0]);
 
         wait(NULL);
-        semctl(semid, 0, IPC_RMID);
+        cleanup();
         exit(result);     
     }
        
 }
 
-int sem_op(int op) {
-    struct sembuf sb;
-    sb.sem_num = 0;
-    sb.sem_op = op;
-    sb.sem_flg = 0;
-    if (semop(semid, &sb, 1) == -1) {
-        perror("semop");
-        return EXIT_FAILURE;
-    }
-    return EXIT_SUCCESS;
-}
-
 void write_stdout(const char *str) {
     write(STDOUT_FILENO, str, strlen(str));
+}
+
+void cleanup() {
+    if (semid != -1) {
+        semctl(semid, 0, IPC_RMID);
+    }
 }
 
 int create_semaphore() {
@@ -127,13 +124,25 @@ int create_semaphore() {
     return EXIT_SUCCESS;
 }
 
+int sem_op(int op) {
+    struct sembuf sb;
+    sb.sem_num = 0;
+    sb.sem_op = op;
+    sb.sem_flg = 0;
+    if (semop(semid, &sb, 1) == -1) {
+        perror("semop");
+        return -1;
+    }
+    return 0;
+}
+
 int child_process(int pipefd, int cycles) {       
     srand(time(NULL) ^ getpid());
         
     for (int i = 0; i < cycles; i++) {
 
-        /* LOCK SEMAPHORE */
-        if (sem_op(WAIT)) {
+        /* Lock semaphore */
+        if (sem_op(WAIT) == -1) {
             return EXIT_FAILURE;
         };
             
@@ -161,8 +170,8 @@ int child_process(int pipefd, int cycles) {
             close(fd);
         }
 
-        /* UNLOCK SEMAPHORE */
-        if (sem_op(SIGNAL)) {
+        /* Unlock semaphore */
+        if (sem_op(SIGNAL) == -1) {
             return EXIT_FAILURE;
         };
             
@@ -191,8 +200,8 @@ int parent_process(int pipefd, int cycles) {
             return EXIT_FAILURE;
         }
         
-        /* LOCK SEMAPHORE */
-        if (sem_op(WAIT)) {
+        /* Lock semaphore */
+        if (sem_op(WAIT) == -1) {
             return EXIT_FAILURE;
         };
   
@@ -217,8 +226,8 @@ int parent_process(int pipefd, int cycles) {
             write_stdout(msg);
         }
         
-        /* UNLOCK SEMAPHORE */
-        if (sem_op(SIGNAL)) {
+        /* Unlock semaphore */
+        if (sem_op(SIGNAL) == -1) {
             return EXIT_FAILURE;
         };
         
