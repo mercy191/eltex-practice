@@ -102,8 +102,6 @@ int main()
     else if (pid == 0) {
         int result = child_process();
 
-        close(shmid);
-        close(semid);
         exit(result);
     }
     /* Parent process */

@@ -70,7 +70,7 @@ int main(int argc, char *argv[])
     }
 
     /* Create semaphore */
-    if (create_semaphore()) {
+    if (create_semaphore() == -1) {
         cleanup();
         exit(EXIT_FAILURE);
     }
@@ -120,15 +120,15 @@ int create_semaphore() {
     semid = semget(IPC_PRIVATE, SEM_COUNT, IPC_CREAT | PERMISSIONS);
     if (semid == -1) {
         perror("semget failed");
-        return EXIT_FAILURE;
+        return -1;
     }
 
     if (semctl(semid, READER, SETVAL, WAIT) == -1 || semctl(semid, WRITER, SETVAL, WAIT) == -1) {
         perror("semctl failed");
-        return EXIT_FAILURE;
+        return -1;
     }
 
-    return EXIT_SUCCESS;
+    return 0;
 }
 
 int sem_op(int semnum, int op, int flg) {

@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
     }
 
     /* Create a semaphore */
-    if (create_semaphore()) {
+    if (create_semaphore() == -1) {
         semctl(semid, 0, IPC_RMID);
         exit(EXIT_FAILURE);
     }
@@ -111,17 +111,17 @@ int create_semaphore() {
     semid = semget(IPC_PRIVATE, 1, IPC_CREAT | PERMISSIONS);
     if (semid == -1) {
         perror("semget failed");
-        return EXIT_FAILURE;
+        return -1;
     }
 
     semun arg;
     arg.val = SIGNAL; 
     if (semctl(semid, 0, SETVAL, arg) == -1) {
         perror("semctl failed");
-        return EXIT_FAILURE;
+        return -1;
     }
 
-    return EXIT_SUCCESS;
+    return 0;
 }
 
 int sem_op(int op) {

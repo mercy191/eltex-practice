@@ -53,7 +53,7 @@ int main(int argc, char *argv[])
     }
 
     /* Create semaphores */
-    if (create_semaphores()) {
+    if (create_semaphores() == -1) {
         cleanup();
         exit(EXIT_FAILURE);
     }
@@ -110,10 +110,10 @@ int create_semaphores() {
     sem = sem_open(SEM_NAME, O_CREAT, PERMISSIONS, CHLD_COUNT);
     if (sem == SEM_FAILED) {
         perror("sem_open failed");
-        return EXIT_FAILURE;
+        return -1;
     }
 
-    return EXIT_SUCCESS;
+    return 0;
 }
 
 int child_process(int pipefd, int cycles) {  
