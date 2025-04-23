@@ -49,6 +49,7 @@ int main(int argc, char *argv[])
 
     /* Create a semaphore */
     if (create_semaphore()) {
+        cleanup();
         exit(EXIT_FAILURE);
     }
 
@@ -56,8 +57,7 @@ int main(int argc, char *argv[])
     pid_t pid = fork();
     if (pid < 0) {
         perror("fork failed");
-        sem_close(sem);
-        sem_unlink(SEM_NAME);
+        cleanup();
         exit(EXIT_FAILURE);
     }
     /* Child process */
@@ -76,14 +76,25 @@ int main(int argc, char *argv[])
         close(pipefd[0]);
 
         wait(NULL);
-        sem_close(sem);
-        sem_unlink(SEM_NAME);
+        cleanup();
         exit(result);     
     }    
 }
 
 void write_stdout(const char *str) {
     write(STDOUT_FILENO, str, strlen(str));
+}
+
+void cleanup() {
+    if (sem != NULL && sem_close(sem) == -1) {
+        perror("sem_close failed");
+    }
+
+    if (getpid() == 1) {  
+        if (sem_unlink(SEM_NAME) == -1) {
+            perror("sem_unlink failed");
+        }
+    }
 }
 
 int create_semaphore() {

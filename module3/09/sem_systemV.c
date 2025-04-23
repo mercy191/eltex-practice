@@ -13,8 +13,7 @@
 
 #define OUTPUT_FILE     "output.txt"
 #define PERMISSIONS     (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
-#define WRITER_COUNT    1
-#define READER_COUNT    2
+#define CHLD_COUNT      2
 
 #define LOCK            1
 #define WAIT            0
@@ -77,7 +76,7 @@ int main(int argc, char *argv[])
     }
     
     /* Create child process*/
-    for (int i = 0; i < READER_COUNT; i++) {
+    for (int i = 0; i < CHLD_COUNT; i++) {
         pid_t pid = fork();
         if (pid < 0) {
             perror("fork failed");
@@ -96,10 +95,10 @@ int main(int argc, char *argv[])
     
     /* Parent process */
     close(pipefd[1]);
-    int result = parent_process(pipefd[0], cycles * READER_COUNT);
+    int result = parent_process(pipefd[0], cycles * CHLD_COUNT);
     close(pipefd[0]);
 
-    for (int i = 0; i < READER_COUNT; i++) {
+    for (int i = 0; i < CHLD_COUNT; i++) {
         wait(NULL); 
     }
 
