@@ -86,7 +86,7 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    if (create_semaphore(sem_key) == 1) {
+    if (create_semaphore(sem_key) == -1) {
         cleanup();
         exit(EXIT_FAILURE);
     }

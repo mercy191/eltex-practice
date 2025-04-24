@@ -62,7 +62,7 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    if (create_semaphore() == 1) {
+    if (create_semaphore() == -1) {
         cleanup();
         exit(EXIT_FAILURE);
     }
