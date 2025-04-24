@@ -11,8 +11,8 @@
 #include <time.h>
 #include <string.h>
 
-#define SHM_KEY_PATH    "/"    
-#define SEM_KEY_PATH    "/" 
+#define SHM_KEY_PATH    "./"    
+#define SEM_KEY_PATH    "./" 
 #define SHM_KEY_ID      31 
 #define SEM_KEY_ID      32      
 #define PERMISSIONS     (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
@@ -131,7 +131,7 @@ int create_shared_key() {
 }
 
 int create_sem_key() {
-    if ((shm_key = ftok(SEM_KEY_PATH, SEM_KEY_ID)) == -1) {
+    if ((sem_key = ftok(SEM_KEY_PATH, SEM_KEY_ID)) == -1) {
         perror("ftok");
         return -1;
     }
