@@ -16,16 +16,9 @@ struct socksaddr_in {
     int active;
 };
 
-volatile int            running = 1;
-char                    bufline[MAX_BUF];        
-int                     client_count = 0;
-int                     sockfd;
-struct sockaddr_in      serveraddr;
-struct socksaddr_in     clientsaddr[CLI_COUNT] = {0};
-uint16_t                servport = 0;
+volatile int running = 1;
 
-
-/* SIGINT handle */
+/* SIGINT handle, send stop message */
 void handle_sigint();
 
 /* Write in STDOUT */
@@ -34,10 +27,29 @@ void write_stdout(const char *str);
 /* Comprassion of clients IP adresses and ports */
 int clients_equal(struct sockaddr_in *a, struct sockaddr_in *b);
 
+/* Checks for a client. Returns 1 if it exists, 0 otherwise. */
+int is_exists(struct socksaddr_in *clientsaddr, struct sockaddr_in *recvaddr);
+
+/* Adds client. If there is space, returns the index in the array, otherwise -1. */
+int add_clientaddr(struct socksaddr_in *clientsaddr, struct sockaddr_in *addr);
+
+/* Listen socket */
+int listen_sock(int sockfd, struct sockaddr_in *addr, socklen_t *addrlen);
+
+/* Send message in socket */
+int send_sock(int sockfd, struct sockaddr_in *addr, socklen_t addrlen);
 
 int main(int argc, char* argv[]) 
 {
     signal(SIGINT, handle_sigint);
+     
+    int                     client_count = 0;
+    int                     sockfd;
+    struct sockaddr_in      serveraddr;
+    struct socksaddr_in     clientsaddr[CLI_COUNT] = {0};
+    struct sockaddr_in      recvaddr;
+    socklen_t               recvaddrlen = sizeof(recvaddr);
+    uint16_t                servport = 0;
 
     if (argc != 2) {
         perror("Usage: udp_server <server port>\n");
@@ -62,51 +74,32 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
 
-    struct sockaddr_in recvaddr;
-    socklen_t recvaddrlen = sizeof(recvaddr);
-
     /* Process one message at a time */
     while (running) {
-        memset(bufline, 0, MAX_BUF);      
-        if (recvfrom(sockfd, bufline, sizeof(MAX_BUF), 0, (struct sockaddr *) &recvaddr, &recvaddrlen) == -1) {
-            perror("recvfrom failed");
+        if (listen_sock(sockfd, &recvaddr, &recvaddrlen) == -1) {
             close(sockfd);
             exit(EXIT_FAILURE);
         }
 
         if (!running) break;
 
-        int known = 0;
-        for (int i = 0; i < CLI_COUNT; i++) {
-            if (clientsaddr[i].active && clients_equal(&recvaddr, &clientsaddr[i].clientaddr)) {
-                known = 1;
-                break;
-            }
-        }
-        if (!known && client_count < CLI_COUNT) {
-            for (int i = 0; i < CLI_COUNT; i++) {
-                if (!clientsaddr[i].active) {
-                    memcpy(&clientsaddr[client_count].clientaddr, &recvaddr, sizeof(recvaddr));
-                    clientsaddr[client_count].active = 1;
-                    char msg[MAX_BUF];
-                    snprintf(msg, sizeof(msg), "New client: %s:%d\n", inet_ntoa(clientsaddr[client_count].clientaddr.sin_addr), ntohs(clientsaddr[client_count].clientaddr.sin_port));
-                    write_stdout(msg);
-                    client_count++;
-                    break;
-                }
-            }           
-        }
-        else if (!known && client_count >= CLI_COUNT) {
+        if (!is_exists(clientsaddr, &recvaddr) && client_count < CLI_COUNT) {             
+            int index = -1;
             char msg[MAX_BUF];
-            snprintf(msg, sizeof(msg), "Client overflow: %s:%d\n", inet_ntoa(clientsaddr[client_count].clientaddr.sin_addr), ntohs(clientsaddr[client_count].clientaddr.sin_port));
-            write_stdout(msg);
-            continue;
+            if ((index = add_clientaddr(clientsaddr, &recvaddr)) != -1) {
+                client_count++;
+                snprintf(msg, sizeof(msg), "New client: %s:%d\n", inet_ntoa(clientsaddr[index].clientaddr.sin_addr), ntohs(clientsaddr[index].clientaddr.sin_port));
+                write_stdout(msg);
+            }
+            else {
+                write_stdout("Client overflow");
+                continue;
+            }            
         }
 
         for (int i = 0; i < client_count; i++) {
             if (!clients_equal(&recvaddr, &clientsaddr[i].clientaddr)) {
-                if (sendto(sockfd, bufline, MAX_BUF, 0, (struct sockaddr*) &clientsaddr[i].clientaddr, (socklen_t) sizeof(clientsaddr[i].clientaddr)) == -1) {
-                    perror("sendto failed");
+                if (send_sock(sockfd, &clientsaddr[i].clientaddr, (socklen_t) sizeof(clientsaddr[i].clientaddr)) == -1) {
                     close(sockfd);
                     exit(EXIT_FAILURE);
                 }
@@ -118,13 +111,13 @@ int main(int argc, char* argv[])
     exit(EXIT_SUCCESS);
 }
 
-void handle_sigint() {
+void handle_sigint(int sockfd, struct sockaddr_in *addr) {
     running = 0; 
 
     struct sockaddr_in stopaddr;
     stopaddr.sin_family = AF_INET;
-    stopaddr.sin_port = serveraddr.sin_port;
-    stopaddr.sin_addr.s_addr = serveraddr.sin_addr.s_addr;
+    stopaddr.sin_port = addr->sin_port;
+    stopaddr.sin_addr.s_addr = addr->sin_addr.s_addr;
     sendto(sockfd, "exit", 4, 0, (struct sockaddr *) &stopaddr, (socklen_t) sizeof(stopaddr));
 }
 
@@ -134,4 +127,46 @@ void write_stdout(const char *str) {
 
 int clients_equal(struct sockaddr_in *a, struct sockaddr_in *b) {
     return a->sin_addr.s_addr == b->sin_addr.s_addr && a->sin_port == b->sin_port;
+}
+
+int is_exists(struct socksaddr_in *clientsaddr, struct sockaddr_in *recvaddr) {
+    for (int i = 0; i < CLI_COUNT; i++) {
+        if (clientsaddr[i].active && clients_equal(recvaddr, &clientsaddr[i].clientaddr)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int add_clientaddr(struct socksaddr_in *clientsaddr, struct sockaddr_in *addr) {
+    for (int i = 0; i < CLI_COUNT; i++) {
+        if (!clientsaddr[i].active) {
+            memcpy(&clientsaddr[i].clientaddr, addr, sizeof(addr));
+            clientsaddr[i].active = 1;                    
+            return i;
+        }
+    } 
+     
+    return -1;
+}
+
+int listen_sock(int sockfd, struct sockaddr_in *addr, socklen_t *addrlen) {
+    char bufline[MAX_BUF];   
+    memset(bufline, 0, MAX_BUF);      
+    if (recvfrom(sockfd, bufline, sizeof(MAX_BUF), 0, (struct sockaddr *) addr, addrlen) == -1) {
+        perror("recvfrom failed");
+        return -1;
+    }
+
+    return 0;
+}
+
+int send_sock(int sockfd, struct sockaddr_in *addr, socklen_t addrlen) {
+    char bufline[MAX_BUF];   
+    if (sendto(sockfd, bufline, MAX_BUF, 0, (struct sockaddr*) addr, addrlen) == -1) {
+        perror("sendto failed");
+        return -1;
+    }
+
+    return 0;
 }
