@@ -80,7 +80,10 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
 
-    signal(SIGINT, handle_sigint);
+    if (signal(SIGINT, handle_sigint) == SIG_ERR) {
+        perror("signal");
+        exit(EXIT_FAILURE);
+    }
 
     int server_sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_sockfd == -1) {
@@ -251,7 +254,7 @@ int get_param(int client_sockfd, char* bufline, int buflen, const char* prompt) 
 void call_selected_operation(const char* operation_name, int a, int b, char* response, int response_len) {
     double result;
     for (int i = 0; i < operations_count; ++i) {
-        if (strcmp(operations[i].name, operation_name) == 0) {
+        if (strncmp(operations[i].name, operation_name, strlen(operation_name)) == 0) {
             if (operations[i].func(&result, a, b) == 0) {
                 snprintf(response, response_len, "%lf\n", result);
             } 

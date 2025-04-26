@@ -7,6 +7,7 @@
 #include <sys/select.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <signal.h>
 #include <netdb.h>
 
 #define MAX_BUF 1024
@@ -39,6 +40,11 @@ int main(int argc, char *argv[])
 {
     if (argc < 3) {
         fprintf(stderr, "Usage: %s <server IP address> <server port>\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+
+    if (signal(SIGINT, handle_sigint) == SIG_ERR) {
+        perror("signal");
         exit(EXIT_FAILURE);
     }
 
@@ -190,7 +196,6 @@ int communication_loop(int client_sockfd) {
     int     bytesread = 0;
     char    bufline[MAX_BUF];
     int     buflen = sizeof(bufline);
-    fd_set  readfds; 
 
     while (running) {
    
