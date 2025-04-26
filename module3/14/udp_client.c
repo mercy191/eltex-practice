@@ -12,12 +12,12 @@
 #define MAX_BUF 1000
 
 volatile int        running = 1;
-int                 sockfd = -1;
-uint16_t            servport = 0;
-struct sockaddr_in  serveraddr;
-struct sockaddr_in  clientaddr;
-pthread_t           recvthread;
-pthread_t           sendthread;
+int                 client_sockfd = -1;
+uint16_t            server_port = 0;
+struct sockaddr_in  server_addr;
+struct sockaddr_in  client_addr;
+pthread_t           recv_thread;
+pthread_t           send_thread;
 
 
 /* SIGINT handle, send stop message */
@@ -27,10 +27,10 @@ void handle_sigint();
 void write_stdout(const char *str);
 
 /* Listen socket */
-void*  listen_thread(void *arg);
+void* listen_sock(void *arg);
 
 /* Send message in socket */
-void*  send_thread(void *arg);
+void* speak_sock(void *arg);
 
 int main(int argc, char* argv[])
 {
@@ -41,66 +41,66 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
 
-    servport = (uint16_t)strtol(argv[2], NULL, 10);
+    server_port = (uint16_t)strtol(argv[2], NULL, 10);
 
-    if ((sockfd = socket(PF_INET, SOCK_DGRAM, 0)) == -1) {
+    if ((client_sockfd = socket(PF_INET, SOCK_DGRAM, 0)) == -1) {
         perror("socket failed");
         exit(EXIT_FAILURE);
     }
 
-    memset(&clientaddr, 0, sizeof(clientaddr));
-    clientaddr.sin_family = AF_INET;
-    clientaddr.sin_port = htons(0);
-    clientaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    memset(&client_addr, 0, sizeof(client_addr));
+    client_addr.sin_family = AF_INET;
+    client_addr.sin_port = htons(0);
+    client_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    if (bind(sockfd, (struct sockaddr*) &clientaddr, sizeof(clientaddr)) == -1) {
+    if (bind(client_sockfd, (struct sockaddr*) &client_addr, sizeof(client_addr)) == -1) {
         perror("bind failed");
-        close(sockfd);
+        close(client_sockfd);
         exit(EXIT_FAILURE);
     }
 
-    memset(&serveraddr, 0, sizeof(serveraddr));
-    serveraddr.sin_family = AF_INET;
-    serveraddr.sin_port = htons(servport);
-    if (inet_aton(argv[1], &serveraddr.sin_addr) == 0) {
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(server_port);
+    if (inet_aton(argv[1], &server_addr.sin_addr) == 0) {
         perror("Invalid IP adress");
-        close(sockfd);
+        close(client_sockfd);
         exit(EXIT_FAILURE);
     }
 
-    if (pthread_create(&recvthread, NULL, listen_thread, NULL) != 0) {
+    if (pthread_create(&recv_thread, NULL, listen_sock, NULL) != 0) {
         perror("pthread_create failed");
-        close(sockfd);
+        close(client_sockfd);
         exit(EXIT_FAILURE);
     }
 
-    if (pthread_create(&sendthread, NULL, send_thread, NULL) != 0) {
+    if (pthread_create(&send_thread, NULL, speak_sock, NULL) != 0) {
         perror("pthread_create failed");
         running = 0;
-        pthread_cancel(recvthread); 
-        pthread_join(recvthread, NULL);
-        close(sockfd);
+        pthread_cancel(recv_thread); 
+        pthread_join(recv_thread, NULL);
+        close(client_sockfd);
         exit(EXIT_FAILURE);
     }
 
-    pthread_join(recvthread, NULL);
-    pthread_join(sendthread, NULL);
+    pthread_join(recv_thread, NULL);
+    pthread_join(send_thread, NULL);
 
-    close(sockfd);
+    close(client_sockfd);
     exit(EXIT_SUCCESS);
 }
 
 void handle_sigint() {
     running = 0; 
-    pthread_cancel(recvthread);
-    pthread_cancel(sendthread);  
+    pthread_cancel(recv_thread);
+    pthread_cancel(send_thread);  
 }
 
 void write_stdout(const char *str) {
     write(STDOUT_FILENO, str, strlen(str));
 }
 
-void* listen_thread(void *arg) {
+void* listen_sock(void *arg) {
     struct sockaddr_in recvaddr;
     socklen_t recvaddrlen = sizeof(recvaddr);
     char bufline[MAX_BUF];  
@@ -109,7 +109,7 @@ void* listen_thread(void *arg) {
         pthread_testcancel();
 
         memset(bufline, 0, sizeof(bufline));
-        if (recvfrom(sockfd, bufline, MAX_BUF, 0, (struct sockaddr*) &recvaddr, &recvaddrlen) == -1) {
+        if (recvfrom(client_sockfd, bufline, MAX_BUF, 0, (struct sockaddr*) &recvaddr, &recvaddrlen) == -1) {
             perror("recvfrom failed");
             break;
         }
@@ -124,7 +124,7 @@ void* listen_thread(void *arg) {
     return NULL;
 }
 
-void* send_thread(void *arg) {
+void* speak_sock(void *arg) {
     char bufline[MAX_BUF];  
 
     while (running) {      
@@ -132,7 +132,7 @@ void* send_thread(void *arg) {
 
         memset(bufline, 0, sizeof(bufline));
         fgets(bufline, MAX_BUF, stdin);
-        if (sendto(sockfd, bufline, strlen(bufline) + 1, 0, (struct sockaddr*) &serveraddr, (socklen_t) sizeof(serveraddr)) == -1) {
+        if (sendto(client_sockfd, bufline, strlen(bufline) + 1, 0, (struct sockaddr*) &server_addr, (socklen_t) sizeof(server_addr)) == -1) {
             perror("sendto failed");
             break;
         }

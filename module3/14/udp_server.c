@@ -19,11 +19,11 @@ struct socksaddr_in {
 
 volatile int            running = 1;
 int                     client_count = 0;
-int                     sockfd = -1;
-uint16_t                servport = 0;
-struct sockaddr_in      serveraddr;
+int                     server_sockfd = -1;
+uint16_t                server_port = 0;
+struct sockaddr_in      server_addr;
 struct socksaddr_in     clientsaddr[CLI_COUNT] = {0};
-pthread_t               procthread;
+pthread_t               proc_thread;
 
 /* SIGINT handle, send stop message */
 void handle_sigint();
@@ -58,39 +58,39 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
 
-    servport = (uint16_t)strtol(argv[1], NULL, 10);
+    server_port = (uint16_t)strtol(argv[1], NULL, 10);
 
-    if ((sockfd = socket(PF_INET, SOCK_DGRAM, 0)) == -1) {
+    if ((server_sockfd = socket(PF_INET, SOCK_DGRAM, 0)) == -1) {
         perror("socket failed"); 
         exit(EXIT_FAILURE);
     }
 
-    memset(&serveraddr, 0, sizeof(serveraddr));
-    serveraddr.sin_family = AF_INET;
-    serveraddr.sin_port = htons(servport);
-    serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(server_port);
+    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    if (bind(sockfd, (struct sockaddr *) &serveraddr, sizeof(serveraddr)) == -1) {
+    if (bind(server_sockfd, (struct sockaddr *) &server_addr, sizeof(server_addr)) == -1) {
         perror("bind failed");
-        close(sockfd);
+        close(server_sockfd);
         exit(EXIT_FAILURE);
     }
 
-    if (pthread_create(&procthread, NULL, processing_thread, NULL) != 0) {
+    if (pthread_create(&proc_thread, NULL, processing_thread, NULL) != 0) {
         perror("pthread_create failed");
-        close(sockfd);
+        close(server_sockfd);
         exit(EXIT_FAILURE);
     }
 
-    pthread_join(procthread, NULL);
+    pthread_join(proc_thread, NULL);
 
-    close(sockfd);
+    close(server_sockfd);
     exit(EXIT_SUCCESS);
 }
 
 void handle_sigint() {
     running = 0; 
-    pthread_cancel(procthread);
+    pthread_cancel(proc_thread);
 }
 
 void write_stdout(const char *str) {
@@ -150,7 +150,7 @@ void* processing_thread(void *arg) {
     while (running) {
         pthread_testcancel();
 
-        if (listen_sock(sockfd, &recvaddr, &recvaddrlen, bufline) == -1) {
+        if (listen_sock(server_sockfd, &recvaddr, &recvaddrlen, bufline) == -1) {
             break;
         }
 
@@ -170,7 +170,7 @@ void* processing_thread(void *arg) {
 
         for (int i = 0; i < client_count; i++) {
             if (!clients_equal(&recvaddr, &clientsaddr[i].clientaddr)) {
-                if (send_sock(sockfd, &clientsaddr[i].clientaddr, (socklen_t) sizeof(clientsaddr[i].clientaddr), bufline) == -1) {
+                if (send_sock(server_sockfd, &clientsaddr[i].clientaddr, (socklen_t) sizeof(clientsaddr[i].clientaddr), bufline) == -1) {
                     break;
                 }
             }
