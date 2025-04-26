@@ -222,14 +222,14 @@ int setup_server_sock(int sockfd, uint16_t port) {
     return 0;
 }
 
-int get_param(int sockfd, char* buffer, int buflen, const char* prompt) {
-    if (send(sockfd, prompt, strlen(prompt), 0) < 0) {
+int get_param(int client_sock, char* bufline, int buflen, const char* prompt) {
+    if (send(client_sock, prompt, strlen(prompt), 0) < 0) {
         perror("send failed");
         return -1;
     }
 
-    memset(buffer, 0, buflen);
-    int bytesread = recv(sockfd, buffer, buflen - 1, 0);
+    memset(bufline, 0, buflen);
+    int bytesread = recv(client_sock, bufline, buflen - 1, 0);
     if (bytesread == -1) {
         perror("read failed");
         return -1;
@@ -238,7 +238,7 @@ int get_param(int sockfd, char* buffer, int buflen, const char* prompt) {
         return 1;
     }
 
-    buffer[strcspn(buffer, "\r\n")] = 0; 
+    bufline[strcspn(bufline, "\r\n")] = 0; 
     return 0;
 }
 
@@ -260,37 +260,37 @@ void call_selected_operation(const char* operation_name, int a, int b, char* res
     return;
 }
 
-int communication_process(int sockfd) {
-    char buffer[MAX_BUF];
+int communication_process(int client_sock) {
+    char bufline[MAX_BUF];
     int a, b;   
 
     fd_set readfds;
     while (running) {       
         FD_ZERO(&readfds);
-        FD_SET(sockfd, &readfds);
+        FD_SET(client_sock, &readfds);
 
         struct timeval timeout = { 0, 0 };
-        int ret = select(sockfd + 1, &readfds, NULL, NULL, &timeout);
+        int ret = select(client_sock + 1, &readfds, NULL, NULL, &timeout);
 
-        if (ret > 0 && FD_ISSET(sockfd, &readfds)) {
-            if (get_param(sockfd, buffer, sizeof(buffer), MSG_FIRST_PARAM) != 0) {
+        if (ret > 0 && FD_ISSET(client_sock, &readfds)) {
+            if (get_param(client_sock, bufline, sizeof(bufline), MSG_FIRST_PARAM) != 0) {
                 break;
             }
-            a = atoi(buffer);
+            a = atoi(bufline);
     
-            if (get_param(sockfd, buffer, sizeof(buffer), MSG_SECOND_PARAM) != 0) {
+            if (get_param(client_sock, bufline, sizeof(bufline), MSG_SECOND_PARAM) != 0) {
                 break;
             }
-            b = atoi(buffer);
+            b = atoi(bufline);
     
-            if (get_param(sockfd, buffer, sizeof(buffer), MSG_FUNC_PARAM) != 0) {
+            if (get_param(client_sock, bufline, sizeof(bufline), MSG_FUNC_PARAM) != 0) {
                 break;
             }
     
             char response[MAX_BUF];
-            call_selected_operation(buffer, a, b, response, sizeof(response));
+            call_selected_operation(bufline, a, b, response, sizeof(response));
     
-            if (send(sockfd, response, strlen(response), 0) < 0) {
+            if (send(client_sock, response, strlen(response), 0) < 0) {
                 perror("send failed");
                 break;
             }
