@@ -16,9 +16,9 @@
 #define MAX_CONNECTIONS     5
 #define WAIT_TIME           5
 
-#define MSG_FIRST_PARAM     "Enter 1 parameter\r\n"
-#define MSG_SECOND_PARAM    "Enter 2 parameter\r\n"
-#define MSG_FUNC_PARAM      "Enter function\r\n"
+#define MSG_FIRST_PARAM     "< (Server) Enter 1 parameter\r\n"
+#define MSG_SECOND_PARAM    "< (Server) Enter 2 parameter\r\n"
+#define MSG_FUNC_PARAM      "< (Server) Enter function\r\n"
 
 typedef int (*operation_func)(double*, int, int);
 
@@ -46,16 +46,19 @@ void write_stdout(const char* str);
 uint16_t parse_port(const char *port_str);
 
 /* Setup socket setting */
-int setup_server_sock(int sockfd, uint16_t port);
+int setup_server_sock(int server_sockfd, uint16_t port);
 
 /* Get parameter from client */
-int get_param(int sockfd, char* buffer, int buflen, const char* prompt);
+int get_param(int client_sockfd, char* bufline, int buflen, const char* prompt);
 
 /* Select and call operation */
 void call_selected_operation(const char* operation_name, int a, int b, char* response, int response_len);
 
+/* Math calculation function */
+int math_caluculation(int client_sockfd);
+
 /* Processes user interaction */
-int communication_process(int sockfd);
+int communication_process(int client_sockfd);
 
 /* Таблица операций */
 operation_t operations[] = {
@@ -74,7 +77,10 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
 
-    signal(SIGINT, handle_sigint);
+    if (signal(SIGINT, handle_sigint) == SIG_ERR) {
+        perror("signal");
+        exit(EXIT_FAILURE);
+    }
 
     int server_sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_sockfd == -1) {
@@ -110,8 +116,8 @@ int main(int argc, char* argv[])
             struct sockaddr_in  client_addr;
             socklen_t           client_len = sizeof(client_addr);
     
-            int client_sock = accept(server_sockfd, (struct sockaddr*) &client_addr, &client_len);
-            if (client_sock == -1) {
+            int client_sockfd = accept(server_sockfd, (struct sockaddr*) &client_addr, &client_len);
+            if (client_sockfd == -1) {
                 perror("accept failed");
                 continue;
             }
@@ -125,19 +131,19 @@ int main(int argc, char* argv[])
             pid_t pid = fork();
             if (pid < 0) {
                 perror("fork failed");
-                close(client_sock);
+                close(client_sockfd);
                 continue;
             }
             /* Child process */
             else if (pid == 0) { 
                 close(server_sockfd);
-                communication_process(client_sock);
-                close(client_sock);
+                communication_process(client_sockfd);
+                close(client_sockfd);
                 exit(EXIT_SUCCESS);
             }
             /* Parent process */
             else { 
-                close(client_sock);
+                close(client_sockfd);
             }
         }       
     }
@@ -203,18 +209,18 @@ uint16_t parse_port(const char *port_str) {
     return (uint16_t)port;
 }
 
-int setup_server_sock(int sockfd, uint16_t port) {
+int setup_server_sock(int client_sockfd, uint16_t port) {
     struct sockaddr_in server_addr = {0};
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(port);
     server_addr.sin_addr.s_addr = INADDR_ANY;
 
-    if (bind(sockfd, (struct sockaddr*) &server_addr, sizeof(server_addr)) < 0) {
+    if (bind(client_sockfd, (struct sockaddr*) &server_addr, sizeof(server_addr)) < 0) {
         perror("bind failed");
         return -1;
     }
 
-    if (listen(sockfd, MAX_CONNECTIONS) < 0) {
+    if (listen(client_sockfd, MAX_CONNECTIONS) < 0) {
         perror("listen failed");
         return -1;
     }
@@ -222,14 +228,14 @@ int setup_server_sock(int sockfd, uint16_t port) {
     return 0;
 }
 
-int get_param(int client_sock, char* bufline, int buflen, const char* prompt) {
-    if (send(client_sock, prompt, strlen(prompt), 0) < 0) {
+int get_param(int client_sockfd, char* bufline, int buflen, const char* prompt) {
+    if (send(client_sockfd, prompt, strlen(prompt), 0) < 0) {
         perror("send failed");
         return -1;
     }
 
     memset(bufline, 0, buflen);
-    int bytesread = recv(client_sock, bufline, buflen - 1, 0);
+    int bytesread = recv(client_sockfd, bufline, buflen, 0);
     if (bytesread == -1) {
         perror("read failed");
         return -1;
@@ -245,7 +251,7 @@ int get_param(int client_sock, char* bufline, int buflen, const char* prompt) {
 void call_selected_operation(const char* operation_name, int a, int b, char* response, int response_len) {
     double result;
     for (int i = 0; i < operations_count; ++i) {
-        if (strcmp(operations[i].name, operation_name) == 0) {
+        if (strncmp(operations[i].name, operation_name, strlen(operation_name)) == 0) {
             if (operations[i].func(&result, a, b) == 0) {
                 snprintf(response, response_len, "%lf\n", result);
             } 
@@ -260,41 +266,67 @@ void call_selected_operation(const char* operation_name, int a, int b, char* res
     return;
 }
 
-int communication_process(int client_sock) {
-    char bufline[MAX_BUF];
-    int a, b;   
+int math_caluculation(int client_sockfd) {
+    int a, b;
+    char    bufline[MAX_BUF];
+    int     buflen = sizeof(bufline);  
 
-    fd_set readfds;
-    while (running) {       
+    if (get_param(client_sockfd, bufline, buflen, MSG_FIRST_PARAM) != 0) {
+        return -1;
+    }
+    a = atoi(bufline);
+
+    if (get_param(client_sockfd, bufline, buflen, MSG_SECOND_PARAM) != 0) {
+        return -1;
+    }
+    b = atoi(bufline);
+
+    if (get_param(client_sockfd, bufline, buflen, MSG_FUNC_PARAM) != 0) {
+        return -1;
+    }
+
+    char response[MAX_BUF];
+    call_selected_operation(bufline, a, b, response, sizeof(response));
+
+    if (send(client_sockfd, response, strlen(response), 0) < 0) {
+        perror("send failed");
+        return -1;
+    }
+
+    return 0;
+}
+
+int communication_process(int client_sockfd) {
+    int     bytesread = 0;
+    char    bufline[MAX_BUF];
+    int     buflen = sizeof(bufline);
+    fd_set  readfds; 
+
+    while (running) {
         FD_ZERO(&readfds);
-        FD_SET(client_sock, &readfds);
+        FD_SET(client_sockfd, &readfds);
 
-        struct timeval timeout = { 0, 0 };
-        int ret = select(client_sock + 1, &readfds, NULL, NULL, &timeout);
+        int ret = select(client_sockfd + 1, &readfds, NULL, NULL, NULL);     
 
-        if (ret > 0 && FD_ISSET(client_sock, &readfds)) {
-            if (get_param(client_sock, bufline, sizeof(bufline), MSG_FIRST_PARAM) != 0) {
+        if (ret > 0 && FD_ISSET(client_sockfd, &readfds)) {           
+            memset(bufline, 0, sizeof(bufline));
+            if ((bytesread = recv(client_sockfd, bufline, sizeof(bufline) - 1, 0)) <= 0) {
                 break;
             }
-            a = atoi(bufline);
-    
-            if (get_param(client_sock, bufline, sizeof(bufline), MSG_SECOND_PARAM) != 0) {
+            bufline[strcspn(bufline, "\r\n")] = 0;
+
+            if (strcmp(bufline, "calc") == 0) {
+                if (math_caluculation(client_sockfd) == -1){
+                    break;
+                }
+            }
+            else if (strcmp(bufline, "quit") == 0) {
                 break;
             }
-            b = atoi(bufline);
-    
-            if (get_param(client_sock, bufline, sizeof(bufline), MSG_FUNC_PARAM) != 0) {
-                break;
+            else {
+                write_stdout("> Unknown command received.\n");
             }
-    
-            char response[MAX_BUF];
-            call_selected_operation(bufline, a, b, response, sizeof(response));
-    
-            if (send(client_sock, response, strlen(response), 0) < 0) {
-                perror("send failed");
-                break;
-            }
-        }       
+        }   
     }
 
     write_stdout("- disconnect\n");

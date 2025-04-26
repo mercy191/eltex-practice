@@ -4,8 +4,10 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <signal.h>
 #include <netdb.h>
 
 #define MAX_BUF 1024
@@ -22,16 +24,24 @@ void write_stdout(const char *str);
 uint16_t parse_port(const char *port_str);
 
 /* Connect to the server */
-int connect_to_server(int sockfd, const char *ip, const char *port);
+int connect_to_server(int client_sockfd, const char *ip, const char *port);
+
+/* Math calculation function */
+int math_caluculation(int client_sockfd);
 
 /* Communication loop */
-int communication_loop(int sockfd);
+int communication_loop(int client_sockfd);
 
 
 int main(int argc, char *argv[])
 {
     if (argc < 3) {
         fprintf(stderr, "Usage: %s <server IP address> <server port>\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+
+    if (signal(SIGINT, handle_sigint) == SIG_ERR) {
+        perror("signal");
         exit(EXIT_FAILURE);
     }
 
@@ -65,29 +75,23 @@ void write_stdout(const char *str) {
 uint16_t parse_port(const char *port_str) {
     char *endptr;
     long port = strtol(port_str, &endptr, 10);
-    if (*endptr != '\0' || port <= 0 || port > 65535) {
-        fprintf(stderr, "Invalid port number: %s\n", port_str);
-        exit(EXIT_FAILURE);
-    }
 
     return (uint16_t)port;
 }
 
 int connect_to_server(int client_sockfd, const char *server_ip, const char *server_port) {
+    struct sockaddr_in server_addr;
 
-    uint16_t serverport = parse_port(server_port);
-    struct sockaddr_in serveraddr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(parse_port(server_port));
 
-    memset(&serveraddr, 0, sizeof(serveraddr));
-    serveraddr.sin_family = AF_INET;
-    serveraddr.sin_port = htons(serverport);
-
-    if (inet_aton(server_ip, &serveraddr.sin_addr) == 0) {
+    if (inet_aton(server_ip, &server_addr.sin_addr) == 0) {
         perror("Invalid IP address");
         return -1;
     }
 
-    if (connect(client_sockfd, (struct sockaddr *)&serveraddr, sizeof(serveraddr)) < 0) {
+    if (connect(client_sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
         perror("connect failed");
         return -1;
     }
@@ -95,25 +99,28 @@ int connect_to_server(int client_sockfd, const char *server_ip, const char *serv
     return 0;
 }
 
-int communication_loop(int client_sockfd) {
-    char bufline[MAX_BUF];
-    int bytesread;
+int math_caluculation(int client_sockfd) {
+    int     bytesread = 0;
+    char    bufline[MAX_BUF];
+    int     buflen = sizeof(bufline);
 
-    while ((bytesread = recv(client_sockfd, bufline, sizeof(bufline) - 1, 0)) > 0 && running) {
-        bufline[bytesread] = '\0';
-        
-        char msg[2 * MAX_BUF];
-        snprintf(msg, sizeof(msg), "< (Server) %s", bufline);
-        write_stdout(msg);
+    if (send(client_sockfd, "calc", strlen("calc"), 0) == -1) {
+        perror("send failed");
+        return -1;
+    }
 
-        if (fgets(bufline, sizeof(bufline), stdin) == NULL) {
-            perror("fgets failed");
+    for (int i = 0; i < 3; ++i) {
+        memset(bufline, 0, buflen);
+        if ((bytesread = recv(client_sockfd, bufline, buflen - 1, 0)) <= 0) {
+            perror("recv failed");
             return -1;
         }
+        bufline[bytesread] = 0;
+        write_stdout(bufline);
 
-        if (strcmp(bufline, "quit\n") == 0) {
-            write_stdout("Exit...\n");
-            break;
+        if (fgets(bufline, buflen, stdin) == NULL) {
+            perror("fgets failed");
+            return -1;
         }
 
         if (send(client_sockfd, bufline, strlen(bufline), 0) == -1) {
@@ -122,10 +129,46 @@ int communication_loop(int client_sockfd) {
         }
     }
 
-    if (bytesread == -1) {
+    memset(bufline, 0, buflen);
+    if ((bytesread = recv(client_sockfd, bufline, buflen - 1, 0)) <= 0) {
         perror("recv failed");
         return -1;
     }
+    bufline[bytesread] = 0;
+    write_stdout(bufline);
+
+    return 0;
+}
+
+int communication_loop(int client_sockfd) {
+    int     bytesread = 0;
+    char    bufline[MAX_BUF];
+    int     buflen = sizeof(bufline);
+
+    while (running) {
+   
+        write_stdout("< Enter command (calc / quit):\n");
+
+        memset(bufline, 0, buflen);
+        if (fgets(bufline, buflen, stdin) == NULL) {
+            perror("fgets failed");
+            return -1;
+        }
+        bufline[strcspn(bufline, "\r\n")] = 0;
+
+        if (strncmp(bufline, "calc", 4) == 0) {
+            if (math_caluculation(client_sockfd) == -1) {
+                break;
+            }
+        }
+        else if (strncmp(bufline, "quit", 4) == 0) {
+            write_stdout("> Exit...\n");
+            break;
+        }
+        else {
+            write_stdout("> Unknown command.\n");
+        }
+    } 
 
     return 0;
 }
