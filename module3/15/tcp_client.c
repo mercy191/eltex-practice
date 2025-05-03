@@ -12,7 +12,7 @@
 
 #define MAX_BUF 1024
 
-int     running = 1;
+static volatile int running = 1;
 
 /* SIGINT handle */
 void handle_sigint(); 

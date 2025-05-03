@@ -70,8 +70,8 @@ operation_t operations[] = {
     {"multiply", multiply},
     {"divide", divide}
 };
-const int   operations_count = sizeof(operations) / sizeof(operations[0]);
-int         running = 1;
+const int           operations_count = sizeof(operations) / sizeof(operations[0]);
+static volatile int running = 1;
 
 int main(int argc, char* argv[])
 {

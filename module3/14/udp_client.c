@@ -34,7 +34,10 @@ void* speak_sock(void *arg);
 
 int main(int argc, char* argv[])
 {
-    signal(SIGINT, handle_sigint);
+    if (signal(SIGINT, handle_sigint) == SIG_ERR) {
+        perror("signal");
+        exit(EXIT_FAILURE);
+    }
 
     if (argc != 3) {
         fprintf(stderr, "Usage: udp_client <server IP address> <server port>\n");

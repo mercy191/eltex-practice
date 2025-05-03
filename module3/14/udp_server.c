@@ -51,7 +51,10 @@ void* processing_thread(void *arg);
 
 int main(int argc, char* argv[]) 
 {
-    signal(SIGINT, handle_sigint);  
+    if (signal(SIGINT, handle_sigint) == SIG_ERR) {
+        perror("signal");
+        exit(EXIT_FAILURE);
+    }
 
     if (argc != 2) {
         fprintf(stderr, "Usage: udp_server <server port>\n");
