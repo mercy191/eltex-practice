@@ -60,6 +60,9 @@ int math_caluculation(int client_sockfd);
 /* Processes user interaction */
 int communication_process(int client_sockfd);
 
+/* Main server cycle */
+void server_loop(int server_sockfd);
+
 /* Таблица операций */
 operation_t operations[] = {
     {"add", add},
@@ -95,58 +98,8 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
 
-    fd_set readfds;
-    while (running) {
-        FD_ZERO(&readfds);
-        FD_SET(server_sockfd, &readfds);
-
-        int ret = select(server_sockfd + 1, &readfds, NULL, NULL, NULL);
-        if (ret == -1) {
-            if (errno == EINTR && !running) {
-                break;
-            }
-            else {
-                continue;
-            }
-            perror("select failed");
-            break;
-        }
-
-        if (FD_ISSET(server_sockfd, &readfds)) {
-            struct sockaddr_in  client_addr;
-            socklen_t           client_len = sizeof(client_addr);
+    server_loop(server_sockfd);
     
-            int client_sockfd = accept(server_sockfd, (struct sockaddr*) &client_addr, &client_len);
-            if (client_sockfd == -1) {
-                perror("accept failed");
-                continue;
-            }
-    
-            struct hostent* hst = gethostbyaddr((char*)&client_addr.sin_addr, sizeof(client_addr.sin_addr), AF_INET);
-            char msg[MAX_BUF];
-            snprintf(msg, sizeof(msg), "+ %s [%s] connected\n", hst ? hst->h_name : "Unknown host", inet_ntoa(client_addr.sin_addr));
-            write_stdout(msg);
-    
-            /* Create child process*/
-            pid_t pid = fork();
-            if (pid < 0) {
-                perror("fork failed");
-                close(client_sockfd);
-                continue;
-            }
-            /* Child process */
-            else if (pid == 0) { 
-                close(server_sockfd);
-                communication_process(client_sockfd);
-                close(client_sockfd);
-                exit(EXIT_SUCCESS);
-            }
-            /* Parent process */
-            else { 
-                close(client_sockfd);
-            }
-        }       
-    }
     send_sigint_to_children(getpid());
     while (wait(NULL) > 0);
     close(server_sockfd);
@@ -331,6 +284,61 @@ int communication_process(int client_sockfd) {
 
     write_stdout("- disconnect\n");
     return 0;
+}
+
+void server_loop(int server_sockfd) {
+    fd_set readfds;
+    while (running) {
+        FD_ZERO(&readfds);
+        FD_SET(server_sockfd, &readfds);
+
+        int ret = select(server_sockfd + 1, &readfds, NULL, NULL, NULL);
+        if (ret == -1) {
+            if (errno == EINTR && !running) {
+                break;
+            }
+            else {
+                continue;
+            }
+            perror("select failed");
+            break;
+        }
+
+        if (FD_ISSET(server_sockfd, &readfds)) {
+            struct sockaddr_in  client_addr;
+            socklen_t           client_len = sizeof(client_addr);
+    
+            int client_sockfd = accept(server_sockfd, (struct sockaddr*) &client_addr, &client_len);
+            if (client_sockfd == -1) {
+                perror("accept failed");
+                continue;
+            }
+    
+            struct hostent* hst = gethostbyaddr((char*)&client_addr.sin_addr, sizeof(client_addr.sin_addr), AF_INET);
+            char msg[MAX_BUF];
+            snprintf(msg, sizeof(msg), "+ %s [%s] connected\n", hst ? hst->h_name : "Unknown host", inet_ntoa(client_addr.sin_addr));
+            write_stdout(msg);
+    
+            /* Create child process*/
+            pid_t pid = fork();
+            if (pid < 0) {
+                perror("fork failed");
+                close(client_sockfd);
+                continue;
+            }
+            /* Child process */
+            else if (pid == 0) { 
+                close(server_sockfd);
+                communication_process(client_sockfd);
+                close(client_sockfd);
+                exit(EXIT_SUCCESS);
+            }
+            /* Parent process */
+            else { 
+                close(client_sockfd);
+            }
+        }       
+    }
 }
 
 int add(double* res, int a, int b) {
