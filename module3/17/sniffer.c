@@ -151,9 +151,9 @@ void parse_data(unsigned char *data, int data_len) {
 }
 
 void *listen_raw_sock(void *arg) {
-    char bufline[MAX_BUF];
-    int buflen = sizeof(bufline) -1;
-    ssize_t bytesread;
+    char    bufline[MAX_BUF];
+    int     buflen = sizeof(bufline) -1;
+    int     bytesread = 0;
 
     while (running) {
         pthread_testcancel();
