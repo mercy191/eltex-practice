@@ -28,7 +28,7 @@ void write_stdout(const char *str);
 uint16_t parse_port(const char *port_str);
 
 /* Setup raw socket setting */
-int setup_raw_sock(int raw_sockfd, uint16_t port);
+int setup_raw_sock(int raw_sockfd);
 
 /* Parse packet data */
 void parse_packet(const char *bufline);
@@ -52,9 +52,7 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
 
-    uint16_t raw_port = parse_port(argv[1]);
-
-    if (setup_raw_sock(raw_sockfd, raw_port) == -1) {
+    if (setup_raw_sock(raw_sockfd) == -1) {
         close(raw_sockfd);
         exit(EXIT_FAILURE);
     }
@@ -80,18 +78,10 @@ void write_stdout(const char *str) {
     write(STDOUT_FILENO, str, strlen(str));
 }
 
-uint16_t parse_port(const char *port_str) {
-    char *endptr;
-    long port = strtol(port_str, &endptr, 10);
-
-    return (uint16_t)port;
-}
-
-int setup_raw_sock(int raw_sockfd, uint16_t port) {
+int setup_raw_sock(int raw_sockfd) {
     struct sockaddr_in raw_sock_addr;
     memset(&raw_sock_addr, 0, sizeof(raw_sock_addr));
     raw_sock_addr.sin_family = AF_INET;
-    raw_sock_addr.sin_port = htons(port);
     raw_sock_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     if (bind(raw_sockfd, (struct sockaddr *) &raw_sock_addr, sizeof(raw_sock_addr)) == -1) {
