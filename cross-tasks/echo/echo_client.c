@@ -11,17 +11,16 @@
 #include <pthread.h>
 
 #define LOG_SIZE        1000
-#define MAX_UDP_PAYLOAD 1472
-#define MAX_IP_LENGHT   1500
+#define MAX_BUF         65535
 #define MAX_CLIENT      10
 #define EXIT_MSG        "__EXIT__"
 
 volatile int        running = 1;
 int                 client_raw_sockfd = -1;
-uint32_t            client_ip = 0;
-uint16_t            client_port = 0;
-uint32_t            server_ip = 0;
-uint16_t            server_port = 0;
+struct sockaddr_in  client_addr;
+socklen_t           client_addr_len = sizeof(struct sockaddr_in);
+struct sockaddr_in  server_addr;
+socklen_t           server_addr_len = sizeof(struct sockaddr_in);
 pthread_t           listen_thread;
 pthread_t           send_thread;
 
@@ -32,27 +31,23 @@ void handle_sigint();
 /* Write in STDOUT */
 void write_stdout(const char *str);
 
-/* Setup IP port settings */
-int setup(char* cclient_ip, char* cclient_port, char* cserver_ip, char* cserver_port);
+/* Parse port */
+int port_pton(char* c_port, uint16_t* port);
+
+/* Setup  socket settings */
+int setup_socket(char* cclient_ip, char* cclient_port, char* cserver_ip, char* cserver_port);
 
 /* Extract message from IP packet */
-int get_src_msg_from_packet(char* msg, char* packet);
+int get_server_msg_from_packet(char* msg, char* packet, uint16_t packet_len);
 
 /* Insert message in IP packet */
-void set_dest_msg_in_packet(char* msg, char* packet) ;
+void set_client_msg_in_packet(char* msg, char* packet, uint16_t packet_len);
 
 /* Listen thread function */
-void* listening(void *arg);
+void* receive_packet(void *arg);
 
 /* Send thread function */
-void* sending(void *arg);
-
-/* Listen socket */
-int listen_sock(int sockfd, char *bufline, int buflen);
-
-/* Send message in socket */
-int send_sock(int sockfd, char *bufline, int buflen);
-
+void* send_packet(void *arg);
 
 int main(int argc, char* argv[])
 {
@@ -63,10 +58,6 @@ int main(int argc, char* argv[])
 
     if (argc != 5) {
         fprintf(stderr, "Usage: %s <client IP address> <client_port> <server IP address> <server port>\n", argv[0]);
-        exit(EXIT_FAILURE);
-    }
-
-    if (setup(argv[1], argv[2], argv[3], argv[4]) == -1) {
         exit(EXIT_FAILURE);
     }
 
@@ -81,13 +72,17 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
 
-    if (pthread_create(&listen_thread, NULL, listening, NULL) != 0) {
+    if (setup_socket(argv[1], argv[2], argv[3], argv[4]) == -1) {
+        exit(EXIT_FAILURE);
+    }
+
+    if (pthread_create(&listen_thread, NULL, receive_packet, NULL) != 0) {
         perror("pthread_create failed");
         close(client_raw_sockfd);
         exit(EXIT_FAILURE);
     }
 
-    if (pthread_create(&send_thread, NULL, sending, NULL) != 0) {
+    if (pthread_create(&send_thread, NULL, send_packet, NULL) != 0) {
         perror("pthread_create failed");
         running = 0;
         pthread_cancel(listen_thread); 
@@ -113,155 +108,176 @@ void write_stdout(const char *str) {
     write(STDOUT_FILENO, str, strlen(str));
 }
  
-int setup(char* cclient_ip, char* cclient_port, char* cserver_ip, char* cserver_port) {
-    struct in_addr client_addr;
-    if (inet_pton(AF_INET, cclient_ip, &client_addr) == 1) {
-        client_ip = client_addr.s_addr;
-    } 
-    else {
-        perror("inet_pton failed");
+int port_pton(char* c_port, uint16_t* port) {  
+    char *endptr;
+    uint16_t p = strtol(c_port, &endptr, 10);
+    if (*endptr != '\0' || p <= 0 || p > 65535) {
         return -1;
     }
-
-    struct in_addr server_addr;
-    if (inet_pton(AF_INET, cserver_ip, &server_addr) == 1) {
-        server_ip = server_addr.s_addr;
-    } 
-    else {
-        perror("inet_pton failed");
-        return -1;
-    }
-
-    client_port = htons(strtol(cclient_port, NULL, 10));
-    server_port = htons(strtol(cserver_port, NULL, 10));
+    *port = htons((uint16_t)p);
 
     return 0;
 }
 
-int get_src_msg_from_packet(char* msg, char* packet) {
-    struct iphdr* ip_header = (struct iphdr*) packet;
-    struct udphdr* udp_header = (struct udphdr*) (ip_header + sizeof(struct iphdr));
-    char* payload = packet + sizeof(struct iphdr) + sizeof(struct udphdr);
-    int payload_len = MAX_UDP_PAYLOAD;
-
-    if (udp_header->dest != client_port) {
+int setup_socket(char* cclient_ip, char* cclient_port, char* cserver_ip, char* cserver_port) {
+    memset(&client_addr, 0, sizeof(struct sockaddr_in));
+    client_addr.sin_family = AF_INET;
+    if (inet_pton(AF_INET, cclient_ip, &client_addr.sin_addr.s_addr) != 1) {
+        perror("inet_pton failed");
+        return -1;
+    } 
+    if (port_pton(cclient_port, &client_addr.sin_port) == -1) {
+        perror("port_pton failed");
         return -1;
     }
-
-    strncpy(msg, payload, payload_len);
     
+    if (bind(client_raw_sockfd, (struct sockaddr*) &client_addr, (socklen_t) sizeof(struct sockaddr))) {
+        perror("bind failed");
+        return -1;
+    }
+
+    memset(&server_addr, 0, sizeof(struct sockaddr_in));
+    server_addr.sin_family = AF_INET;
+    if (inet_pton(AF_INET, cserver_ip, &server_addr.sin_addr.s_addr) != 1) {
+        perror("inet_pton failed");
+        return -1;
+    } 
+    if (port_pton(cserver_port, &server_addr.sin_port) == -1) {
+        perror("port_pton failed");
+        return -1;
+    }
+
     return 0;
 }
 
-void set_dest_msg_in_packet(char* msg, char* packet) {
-    struct iphdr* ip_header = (struct iphdr*) packet;
-    struct udphdr* udp_header = (struct udphdr*)(packet + sizeof(struct iphdr));
-    char* payload = packet + sizeof(struct iphdr) + sizeof(struct udphdr);
-    int payload_len = MAX_UDP_PAYLOAD;
-
-    strncpy(payload, msg, strlen(msg));
-
-    ip_header->ihl = 5;
-    ip_header->version = 4;
-    ip_header->tot_len = htons(sizeof(struct iphdr) + sizeof(struct udphdr) + payload_len);
-    ip_header->ttl = 64;
-    ip_header->protocol = IPPROTO_UDP;
-    ip_header->saddr = client_ip;
-    ip_header->daddr = server_ip;
-
-    udp_header->source = client_port;
-    udp_header->dest = server_port;
-    udp_header->len = htons(sizeof(struct udphdr) + payload_len);
-
-
-    printf("IP header size: %ld\n", sizeof(struct iphdr));
-    printf("IP total length: %u\n", ntohs(ip_header->tot_len));
-    printf("IP source address: %u\n", ntohl(client_ip));
-    printf("IP dest address: %u\n", ntohl(server_ip));
-
-    printf("UDP header size: %ld\n", sizeof(struct udphdr));
-    printf("UDP source port: %u\n", ntohs(client_port));
-    printf("UDP dest port: %u\n", ntohs(server_port));
-    printf("UDP total length: %u\n", ntohs(udp_header->len));
-    printf("UDP payload size: %d\n", payload_len);
-
-    printf("Msg size: %ld\n", strlen(msg));
-}
-
-void* listening(void *arg) {
-    char msg[MAX_UDP_PAYLOAD];  
-    char packet[MAX_IP_LENGHT];
+void* receive_packet(void *arg) {
+    char                msg[MAX_BUF];  
+    char*               packet;
+    uint16_t            packet_len;
+    int                 recv_bytes = 0;
+    struct sockaddr_in  recv_addr;
+    socklen_t           recv_addr_len = sizeof(recv_addr);
 
     while (running) {  
         pthread_testcancel();
 
+        /* Read ip packet length */
+        uint16_t ip_length[2];
+        int recv_bytes = recv(client_raw_sockfd, (char*) ip_length, 4, MSG_PEEK);
+        packet_len = ntohs(ip_length[1]);
+
+        /* Allocate memory for ip packet */
+        packet = malloc(packet_len);
+        if (packet == NULL) {
+            perror("malloc failed");
+            continue;
+        }
+
         memset(msg, 0, sizeof(msg));
-        memset(packet, 0, MAX_IP_LENGHT);
-        if (listen_sock(client_raw_sockfd, packet, MAX_IP_LENGHT) < 0) {
+        memset(&recv_addr, 0, recv_addr_len);
+
+        /* Read full ip packet */
+        if ((recv_bytes = recvfrom(client_raw_sockfd, packet, packet_len, 0, (struct sockaddr*) &recv_addr, &recv_addr_len)) == -1) {
+            free(packet);
+            perror("recv failed");
             continue;
         }
         else {
-            if (get_src_msg_from_packet(msg, packet) == -1) {
+            /* Get msg from ip packet */ 
+            if (get_server_msg_from_packet(msg, packet, packet_len) == -1) {
+                free(packet);
                 continue;
             }
+            write_stdout("< ");
             write_stdout(msg);
             write_stdout("\n");
         } 
+
+        free(packet);
     }
 
     return NULL;
 }
 
-void* sending(void *arg) {
-    char msg[MAX_UDP_PAYLOAD];  
-    char packet[MAX_IP_LENGHT];
+void* send_packet(void *arg) {
+    char        msg[MAX_BUF];  
+    char*       packet;
+    uint16_t    packet_len;
 
     while (running) {      
         pthread_testcancel();
 
+        /* Read msg from STDIN */
+        write_stdout("> ");
         memset(msg, 0, sizeof(msg));
-        memset(packet, 0, MAX_UDP_PAYLOAD);
         fgets(msg, sizeof(msg), stdin);
         msg[strcspn(msg, "\n")] = 0;
 
         if (strlen(msg) > 0) {
-            set_dest_msg_in_packet(msg, packet);
 
-            if (send_sock(client_raw_sockfd, packet, MAX_IP_LENGHT) < 0) {
+            /* Set ip packet length */
+            packet_len = sizeof(struct iphdr) + sizeof(struct udphdr) + strlen(msg);
+            /* Allocate memory for ip packet */
+            packet = malloc(packet_len);
+            if (packet == NULL) {
+                perror("malloc failed");
                 continue;
             }
+
+            /* Configurate ip packet */
+            set_client_msg_in_packet(msg, packet, packet_len);
+
+            /* Send ip packet */
+            if (sendto(client_raw_sockfd, packet, packet_len, 0,(struct sockaddr*) &server_addr, server_addr_len) == -1) {
+                free(packet);
+                perror("send failed");
+                continue;
+            }
+
+            free(packet);
         }
     } 
     return NULL;  
 }
 
-int listen_sock(int sockfd, char *bufline, int buflen) {         
-    int bytesread = 0;
-    struct sockaddr_in addr;
-    socklen_t addrlen = sizeof(addr);
+int get_server_msg_from_packet(char* msg, char* packet, uint16_t packet_len) {
+    struct iphdr* ip_header = (struct iphdr*) packet;
+    struct udphdr* udp_header = (struct udphdr*) (packet + ip_header->ihl * 4);
+    char* payload = packet + sizeof(struct iphdr) + sizeof(struct udphdr);
+    int payload_len = packet_len - sizeof(struct udphdr) - sizeof(struct iphdr);
 
-    if ((bytesread = recvfrom(sockfd, bufline, buflen, 0, (struct sockaddr*) &addr, &addrlen)) == -1) {
-        perror("recvfrom failed");
-        return -1;
-    }
-    else if (bytesread == 0) {
-        return 0;
-    }
-
-    return bytesread;
-}
-
-int send_sock(int sockfd, char *bufline, int buflen) {
-    struct sockaddr_in  addr;
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = server_ip;
-    addr.sin_port = server_port;
-    socklen_t addrlen = sizeof(addr);
-
-    if (sendto(sockfd, bufline, buflen, 0, (struct sockaddr*) &addr, addrlen) == -1) {
-        perror("sendto failed");
+    if ((udp_header->dest != client_addr.sin_port) || (udp_header->source != server_addr.sin_port)) {
         return -1;
     }
 
+    memcpy(msg, payload, payload_len);
+    msg[payload_len] = '\0';
+    
     return 0;
 }
+
+void set_client_msg_in_packet(char* msg, char* packet, uint16_t packet_len) {
+    struct iphdr* ip_header = (struct iphdr*) packet;
+
+    ip_header->version = 4;
+    ip_header->ihl = 5;   
+
+    struct udphdr* udp_header = (struct udphdr*) (packet + ip_header->ihl * 4);
+    int payload_len = packet_len - sizeof(struct udphdr) - sizeof(struct iphdr);
+    char* payload = packet + sizeof(struct iphdr) + sizeof(struct udphdr);
+    strncpy(payload, msg, strlen(msg));
+
+    ip_header->tot_len = htons(packet_len);
+    ip_header->ttl = 64;
+    ip_header->frag_off = 0;
+    ip_header->protocol = IPPROTO_UDP;
+    ip_header->saddr = client_addr.sin_addr.s_addr;
+    ip_header->daddr = server_addr.sin_addr.s_addr;
+    ip_header->check = 0;
+
+    udp_header->source = client_addr.sin_port;
+    udp_header->dest = server_addr.sin_port;
+    udp_header->len = htons(sizeof(struct udphdr) + payload_len);
+    udp_header->check = 0;
+}
+

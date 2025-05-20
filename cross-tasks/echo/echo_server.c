@@ -16,15 +16,15 @@
 #define EXIT_MSG        "__EXIT__"
 
 typedef struct ClientInfo {
-    struct in_addr client_ip;
-    uint16_t client_port;
-    int counter;
+    struct sockaddr_in  client_addr;
+    socklen_t           client_addr_len;
+    int                 counter;
 } ClientInfo;
 
 volatile int        running = 1;
 int                 server_raw_sockfd = -1;
-uint32_t            server_ip = 0;
-uint16_t            server_port = 0;
+struct sockaddr_in  server_addr;
+socklen_t           server_addr_len = sizeof(struct sockaddr_in);
 int                 clients_count = 0;
 ClientInfo          clients_info[MAX_CLIENT];
 
@@ -35,20 +35,20 @@ void handle_sigint();
 /* Write in STDOUT */
 void write_stdout(const char *str);
 
-/* Parse IP and port */
-int parse_ip_port(char* cserver_ip, char* cserver_port);
+/* Parse port */
+int port_pton(char* c_port, uint16_t* port);
 
-/* Setup socket settings*/
-int setup_socket();
+/* Setup  socket settings */
+int setup_socket(char* cserver_ip, char* cserver_port);
 
 /* Add information about client in CLIENTS_INFO */
 int add_client(ClientInfo* client_info);
 
 /* Reset information about client session in CLIENTS_INFO */
-void reset_client(ClientInfo* client_info);
+int reset_client(ClientInfo* client_info);
 
 /* Clear information about client session in CLIENTS_INFO */
-void clear_client(ClientInfo* client_info) ;
+int clear_client(ClientInfo* client_info) ;
 
 /* Find client in CLIENTS_INFO */
 int find_client(ClientInfo* client_info);
@@ -57,19 +57,19 @@ int find_client(ClientInfo* client_info);
 void* processing_thread(void *arg); 
 
 /* Receive client packet and parse it in CLIENT_INFO and CLIENT_MSG */
-int receive_packet(ClientInfo* client_info, char* client_msg); 
+int receive_packet(ClientInfo* client_info, char** client_msg); 
 
 /* Configurate server packet from CLIENT_INFO and SERVER_MSG and send it */
 int send_packet(ClientInfo* client_info, char* server_msg); 
 
 /* Parse IP packet, fill CLIENT_INFO and CLIENT_MSG */
-int get_client_msg_from_packet(ClientInfo* client_info, char* client_msg, char* packet, uint16_t packet_len);
+int get_client_msg_from_packet(ClientInfo* client_info, char** client_msg, char* packet, uint16_t packet_len);
 
 /* Configurate new IP packet from CLIENT_INFO and SERVER_MSG */
 int set_server_msg_in_packet(ClientInfo* client_info, char* server_msg, char* packet, uint16_t packet_len);
 
 /* Configurate SERVER_MSG from CLIENT_INFO and CLIENT_MSG */
-void configurate_server_msg(char* client_msg, char* server_msg);
+int configurate_server_msg(ClientInfo* client_info, char* client_msg, char** server_msg);
 
 
 int main(int argc, char* argv[])
@@ -84,10 +84,6 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
 
-    if (parse_ip_port(argv[1], argv[2]) == -1) {
-        exit(EXIT_FAILURE);
-    }
-
     if ((server_raw_sockfd = socket(PF_INET, SOCK_RAW, IPPROTO_UDP)) == -1) {
         perror("socket failed");
         exit(EXIT_FAILURE);
@@ -99,7 +95,7 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
 
-    if (setup_socket() == -1) {
+    if (setup_socket(argv[1], argv[2]) == -1) {
         exit(EXIT_FAILURE);
     }
 
@@ -128,24 +124,30 @@ void write_stdout(const char *str) {
     write(STDOUT_FILENO, str, strlen(str));
 }
 
-int parse_ip_port(char* cserver_ip, char* cserver_port) {
-    if (inet_pton(AF_INET, cserver_ip, &server_ip) == -1) {
-        perror("inet_pton failed");
+int port_pton(char* c_port, uint16_t* port) {  
+    char *endptr;
+    uint16_t p = strtol(c_port, &endptr, 10);
+    if (*endptr != '\0' || p <= 0 || p > 65535) {
         return -1;
-    } 
-    server_port = htons(strtol(cserver_port, NULL, 10));
+    }
+    *port = htons((uint16_t)p);
 
     return 0;
 }
 
-int setup_socket() {
-    struct sockaddr_in server_addr;
+int setup_socket(char* cserver_ip, char* cserver_port) {
     memset(&server_addr, 0, sizeof(struct sockaddr_in));
-    server_addr.sin_addr.s_addr = server_ip;
-    server_addr.sin_port = server_port;
     server_addr.sin_family = AF_INET;
+    if (inet_pton(AF_INET, cserver_ip, &server_addr.sin_addr.s_addr) != 1) {
+        perror("inet_pton failed");
+        return -1;
+    } 
+    if (port_pton(cserver_port, &server_addr.sin_port) == -1) {
+        perror("port_pton failed");
+        return -1;
+    }
     
-    if (bind(server_raw_sockfd, (struct sockaddr*) &server_addr, (socklen_t) sizeof(struct sockaddr))) {
+    if (bind(server_raw_sockfd , (struct sockaddr*) &server_addr, (socklen_t) sizeof(struct sockaddr))) {
         perror("bind failed");
         return -1;
     }
@@ -158,8 +160,8 @@ int add_client(ClientInfo* client_info) {
         return -1;
     }
     else {
-        clients_info[clients_count].client_ip = client_info->client_ip;
-        clients_info[clients_count].client_port = client_info->client_port;
+        clients_info[clients_count].client_addr = client_info->client_addr;
+        clients_info[clients_count].client_addr_len = sizeof(struct sockaddr_in);
         clients_info[clients_count].counter = 1;
         clients_count++;
     }  
@@ -167,17 +169,35 @@ int add_client(ClientInfo* client_info) {
     return 0;
 }
 
-void reset_client(ClientInfo* client_info) {
+int reset_client(ClientInfo* client_info) {
+    int idx = find_client(client_info);
+    if (idx == -1){
+        return -1;
+    }
+    else {
+        clients_info[idx].counter++;
+        client_info->counter = clients_info[idx].counter;
+    }
 
+    return 0;
 }
 
-void clear_client(ClientInfo* client_info) {
+int clear_client(ClientInfo* client_info) {
+    int idx = find_client(client_info);
+    if (idx == -1){
+        return -1;
+    }
+    else {
+        clients_info[idx].counter = 0;
+    }
 
+    return 0;
 }
 
 int find_client(ClientInfo* client_info) {
     for (int i = 0; i < clients_count; i++) {
-        if (clients_info[i].client_ip.s_addr == client_info->client_ip.s_addr && clients_info[i].client_port == client_info->client_port) {
+        if (clients_info[i].client_addr.sin_addr.s_addr == client_info->client_addr.sin_addr.s_addr
+            && clients_info[i].client_addr.sin_port == client_info->client_addr.sin_port) {
             return i;
         }
     }
@@ -193,37 +213,62 @@ void *processing_thread(void *arg) {
         pthread_testcancel();
 
         memset(&client_info, 0, sizeof(ClientInfo));
-        if (receive_packet(&client_info, client_msg) == -1) {
+        client_msg = NULL;
+        server_msg = NULL;
+
+        if (receive_packet(&client_info, &client_msg) == -1) {
             continue;
         }
 
-        if (strncmp(client_msg, EXIT_MSG, sizeof(EXIT_MSG)) == 0) {
-            clear_client(&client_info);
-            continue;
-        }
-
-        if (find_client(&client_info) == -1) {
-            if (add_client(&client_info) == -1) {
-                continue;
+        if (strcmp(client_msg, EXIT_MSG) == 0) {
+            if (clear_client(&client_info) != -1) {
+                char log_msg[LOG_SIZE];
+                sprintf(log_msg, "Client %s:%d disconnected\n", inet_ntoa(client_info.client_addr.sin_addr), ntohs(client_info.client_addr.sin_port));
+                write_stdout(log_msg);
             }
+            if (client_msg != NULL) {
+                free(client_msg);
+            }
+            continue;
         }
         else {
-            reset_client(&client_info);
+            if (reset_client(&client_info) == -1) {
+                add_client(&client_info);
+
+                char log_msg[LOG_SIZE];
+                sprintf(log_msg, "Client %s:%d connected\n", inet_ntoa(client_info.client_addr.sin_addr), ntohs(client_info.client_addr.sin_port));
+                write_stdout(log_msg);
+            }
         }
 
+        if (configurate_server_msg(&client_info, client_msg, &server_msg) == -1) {
+            if (client_msg != NULL) {
+                free(client_msg);
+            }
+            continue;
+        } 
 
 
+        if (send_packet(&client_info, server_msg) != -1) {
+            char log_msg[LOG_SIZE];
+            sprintf(log_msg, "Send to %s:%d\n", inet_ntoa(client_info.client_addr.sin_addr), ntohs(client_info.client_addr.sin_port));
+            write_stdout(log_msg);
+        }
         
-
+        if (client_msg != NULL) {
+            free(client_msg);
+        }
+        if (server_msg != NULL) {
+            free(server_msg);
+        }
     }
 
     return NULL;
 }
 
-
-int receive_packet(ClientInfo* client_info, char* client_msg) {
-    char*   packet;
-    int     packet_len;
+int receive_packet(ClientInfo* client_info, char** client_msg) {
+    char*       packet;
+    uint16_t    packet_len;
 
     /* Read ip packet length */
     uint16_t ip_length[2];
@@ -232,23 +277,23 @@ int receive_packet(ClientInfo* client_info, char* client_msg) {
 
     /* Allocate memory for ip packet */
     packet = malloc(packet_len);
+    if (packet == NULL) {
+        perror("malloc failed");
+        return -1;
+    }
 
     /* Read full ip packet */
-    if ((recv_bytes = recv(server_raw_sockfd, packet, packet_len, 0)) == -1) {
+    if ((recv_bytes = recvfrom(server_raw_sockfd, packet, packet_len, 0, (struct sockaddr*) &client_info->client_addr, &client_info->client_addr_len)) == -1) {
         perror("recv failed");
         free(packet);
         return -1;
     }
 
-    /* Copy msg from ip packet */ 
+
+    /* Get msg from ip packet */ 
     if (get_client_msg_from_packet(client_info, client_msg, packet, packet_len) == -1) {
         free(packet);
         return -1;
-    }
-    else {
-        char log_msg[LOG_SIZE];
-        sprintf(log_msg, "Client %s:%d connected\n", inet_ntoa(client_info->client_ip), client_info->client_port);
-        write_stdout(log_msg);
     }
      
     free(packet);
@@ -256,60 +301,100 @@ int receive_packet(ClientInfo* client_info, char* client_msg) {
 }
 
 int send_packet(ClientInfo* client_info, char* server_msg) {
+    char*       packet;
+    uint16_t    packet_len;
 
+    /* Set ip packet length */
+    packet_len = sizeof(struct iphdr) + sizeof(struct udphdr) + strlen(server_msg);
+    /* Allocate memory for ip packet */
+    packet = malloc(packet_len);
+    if (packet == NULL) {
+        perror("malloc failed");
+        return -1;
+    }
+
+    /* Configurate ip packet */
+    set_server_msg_in_packet(client_info, server_msg, packet, packet_len);
+
+    /* Send ip packet */
+    if (sendto(server_raw_sockfd, packet, packet_len, 0, (struct sockaddr*) &client_info->client_addr, client_info->client_addr_len) == -1) {
+        perror("send failed");
+        free(packet);
+        return -1;
+    }
+
+    free(packet);
+    return 0;
 }
 
-int get_client_msg_from_packet(ClientInfo* client_info, char* client_msg, char* packet, uint16_t packet_len) {
+int get_client_msg_from_packet(ClientInfo* client_info, char** client_msg, char* packet, uint16_t packet_len) {
     struct iphdr* ip_header = (struct iphdr*) packet;
-    struct udphdr* udp_header = (struct udphdr*) (ip_header + sizeof(struct iphdr));
+    struct udphdr* udp_header = (struct udphdr*) (packet + ip_header->ihl * 4);
     char* payload = packet + sizeof(struct iphdr) + sizeof(struct udphdr);
     int payload_len = packet_len - sizeof(struct udphdr) - sizeof(struct iphdr);
 
-    printf("IP header size: %ld\n", sizeof(struct iphdr));
-    printf("IP total length: %u\n", ntohs(ip_header->tot_len));
-    printf("IP source address: %u\n", ntohl(ip_header->saddr));
-    printf("IP dest address: %u\n", ntohl(ip_header->daddr));
-
-    printf("UDP header size: %ld\n", sizeof(struct udphdr));
-    printf("UDP source port: %u\n", ntohs(udp_header->source));
-    printf("UDP dest port: %u\n", ntohs(udp_header->dest));
-    printf("UDP total length: %u\n", ntohs(udp_header->len));
-    printf("UDP payload size: %d\n", payload_len);
-
-    /*if (udp_header->dest != server_port) {
+    if (udp_header->dest != server_addr.sin_port) {
         return -1;
-    }*/
+    }
 
-    client_info->client_ip.s_addr = ip_header->saddr;
-    client_info->client_port = udp_header->source;
+    client_info->client_addr.sin_addr.s_addr = ip_header->saddr;
+    client_info->client_addr.sin_port = udp_header->source;
+    client_info->client_addr.sin_family = AF_INET;
     client_info->counter = 1;
 
-    client_msg = malloc(payload_len);
-    strncpy(client_msg, payload, payload_len);
+    *client_msg = malloc(payload_len + 1);
+    if (*client_msg == NULL) {
+        perror("malloc failed");
+        return -1;
+    }
+    memcpy(*client_msg, payload, payload_len);
+    (*client_msg)[payload_len] = '\0';
     
     return 0;
 }
 
 int set_server_msg_in_packet(ClientInfo* client_info, char* server_msg, char* packet, uint16_t packet_len) {
     struct iphdr* ip_header = (struct iphdr*) packet;
-    struct udphdr* udp_header = (struct udphdr*) (packet + sizeof(struct iphdr));
-    char* payload = packet + sizeof(struct iphdr) + sizeof(struct udphdr);
-    int payload_len = packet_len - sizeof(struct udphdr) - sizeof(struct iphdr);
-
 
     ip_header->ihl = 5;
     ip_header->version = 4;
-    ip_header->tot_len = htons(sizeof(struct iphdr) + sizeof(struct udphdr) + payload_len);
-    ip_header->ttl = 64;
-    ip_header->protocol = IPPROTO_UDP;
-    ip_header->saddr = server_ip;
-    ip_header->daddr = client_info->client_ip.s_addr;
 
-    udp_header->source = server_port;
-    udp_header->dest = client_info->client_port;
+    struct udphdr* udp_header = (struct udphdr*) (packet + ip_header->ihl * 4);
+    int payload_len = packet_len - sizeof(struct udphdr) - sizeof(struct iphdr);
+    char* payload = packet + sizeof(struct iphdr) + sizeof(struct udphdr);
+    strncpy(payload, server_msg, strlen(server_msg));
+
+    ip_header->tot_len = htons(packet_len);
+    ip_header->ttl = 64;
+    ip_header->frag_off = 0;
+    ip_header->protocol = IPPROTO_UDP;
+    ip_header->saddr = server_addr.sin_addr.s_addr;
+    ip_header->daddr = client_info->client_addr.sin_addr.s_addr;
+    ip_header->check = 0;
+
+    udp_header->source = server_addr.sin_port;
+    udp_header->dest = client_info->client_addr.sin_port;
     udp_header->len = htons(sizeof(struct udphdr) + payload_len);
+    udp_header->check = 0;
+
+    return 0;
 }
 
-void configurate_server_msg(char* client_msg, char* server_msg) {
+int configurate_server_msg(ClientInfo* client_info, char* client_msg, char** server_msg) {
+    if (client_info == NULL || client_msg == NULL) {
+        return -1;
+    }
 
+    int msg_len = strlen(client_msg);
+    int buffer_size = msg_len + 3; 
+    *server_msg = malloc(buffer_size);
+
+    if (*server_msg == NULL) {
+        perror("malloc failed");
+        return -1;
+    }
+
+    snprintf(*server_msg, buffer_size, "%s %d", client_msg, client_info->counter);
+
+    return 0;
 }
