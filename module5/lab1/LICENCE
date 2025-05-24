@@ -1,0 +1,22 @@
+License for user internal kernel module v1.0
+
+Copyright (c) 2025, <Nikita Ivanov>
+
+Authorization is hereby granted to use this kernel module solely for educational purposes at the ELTEX School.
+
+This module is provided as is, without any guarantees being expressed
+or implied. The author is not responsible for any damages resulting from
+use of this software.
+
+Redistribution, reverse engineering or commercial distribution of this
+the module or its derivatives are strictly prohibited without explicit written indication
+permission of the author.
+
+This module is not licensed under the GNU General Public License (GPL)
+and therefore should not use any kernel characters exported using EXPORT_SYMBOL_GPL.
+
+By loading this module into the Linux kernel, you confirm and accept
+that the module can ruin the kernel and that it is your sole responsibility
+to ensure compatibility, security and stability.
+
+END OF LICENSE
